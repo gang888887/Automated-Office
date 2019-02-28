@@ -1,0 +1,212 @@
+import pandas as pd
+import numpy as np
+import math
+# input
+file_name=u'LTE工参.xlsx'
+file_name_2=u'zhengqi.xlsx'
+#导入工参数据
+data=pd.read_excel(file_name,encoding="gb18030")
+#输入区域多边形顶点，逆时针
+#points_list=[121.5401191,29.86119241145623,121.5390849415846,29.85902889857182,121.5405542541481,29.85809950334996,121.5449055202007,29.8577709680897,121.5475164899692,29.86174281327742,121.5466414246781,29.86338635622785,121.5446038179316,29.86408249784336,121.5411648113005,29.8633130696481]
+#print(points_list)
+points_list_all=pd.read_excel(file_name_2,encoding="gb18030")
+points_list_all
+# utilities
+def toNumpy(points):
+    return np.array(list(map(lambda p: p.np(), points)), np.float64)
+
+def cross_prod(p, q): 
+    return p.x*q.y-q.x*p.y
+
+# 逆时针
+def ccw(A, B, C):
+    return cross_prod(C-B, A-B)>0
+    #return (C.x-B.x)*(A.y-B.y)-(A.x-B.x)*(C.y-B.y) > 0
+
+
+# 线段是否相交
+def intersect(a1, b1, a2, b2):
+    """Returns True if the line segments a1b1 and a2b2 intersect."""
+    return (ccw(a1, b1, a2) != ccw(a1, b1, b2)
+            and ccw(a2, b2, a1) != ccw(a2, b2, b1))
+# 向量夹角v1->v2
+#v1=np.array([[1,2]])
+#v2=np.array([[2,3]])
+def Angle2D(v1, v2):
+    theta1 = math.atan2(v1[0,1],v1[0,0])
+    theta2 = math.atan2(v2[0,1],v2[0,0])
+    dtheta = theta2 - theta1
+    while dtheta > math.pi:
+        dtheta -= math.pi*2
+    while dtheta < -math.pi:
+        dtheta += math.pi*2
+
+    return dtheta
+# data struct
+# class Point
+class Point(object):
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __str__(self):
+        return "(" + str(self.x) + ", " + str(self.y) + ")"
+
+    def __eq__(self, other):
+        return self.x == other.x and self.y == other.y
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+    def __add__(self, other):
+        return Point(self.x + other.x, self.y + other.y)
+    
+    def __sub__(self, other):
+        return Point(self.x - other.x, self.y - other.y)
+
+    def __rmul__(self, c):
+        return Point(c * self.x, c * self.y)
+
+    def close(self, that, epsilon=0.01):
+        return self.dist(that) < epsilon
+
+    def dist(self, that):
+        return math.sqrt(self.sqrDist(that))
+
+    def sqrDist(self, that):
+        dx = self.x - that.x
+        dy = self.y - that.y
+        return dx * dx + dy * dy
+
+    def np(self):
+        """Returns the point's Numpy point representation"""
+        return [self.x, self.y]
+# class Polygon: points in CCW or CW
+class Polygon(object):
+
+    def __init__(self, points):
+        if len(points) < 3:
+            raise ValueError("Polygon must have at least three vertices.")
+
+        self.points = points
+        self.n = len(points)
+
+    def __str__(self):
+        s = ""
+        for point in self.points:
+            if s:
+                s += " -> "
+            s += str(point)
+        return s
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.points, key=lambda p: p.x)))
+
+    def isConvex(self):
+        target = None
+        for i in range(self.n):
+            # Check every triplet of points
+            A = self.points[i % self.n]
+            B = self.points[(i + 1) % self.n]
+            C = self.points[(i + 2) % self.n]
+
+            if not target:
+                target = ccw(A, B, C)
+            else:
+                if ccw(A, B, C) != target:
+                    return False
+
+        return True
+
+    def ccw(self):
+        """Returns True if the points are provided in CCW order."""
+        return ccw(self.points[0], self.points[1], self.points[2])
+# key functions
+# 点是否在多边形内部（不包含边界）
+def encloses_point(polygon, p):
+
+    angle=0;
+    v1=np.zeros((1,2))
+    v2=np.zeros((1,2))
+
+    for i in range(polygon.n):
+        v1[0,0] = polygon.points[i].x - p.x
+        v1[0,1] = polygon.points[i].y - p.y
+        v2[0,0] = polygon.points[(i+1)%polygon.n].x - p.x
+        v2[0,1] = polygon.points[(i+1)%polygon.n].y - p.y
+        angle += Angle2D(v1,v2)
+        
+        # debug
+        '''
+        print(i,polygon.points[i].x,polygon.points[i].y)
+        print(Angle2D(v1,v2)*180/math.pi)
+        print(angle*180/math.pi)
+        '''
+
+    if abs(angle) < math.pi:
+        return False
+    else:
+        return True
+# 凸包
+# input: list of Point  
+# output: Polygon in CCW
+def convexHull(point_list):
+
+    # 逆时针
+    def ccw(points):
+        return (points[1][0] - points[0][0]) * (points[2][1] - points[0][1]) > (points[1][1] - points[0][1]) * (points[2][0] - points[0][0])
+ 
+    point_list = list(map(lambda p:(p.x,p.y), point_list))
+    n = len(point_list)  #Total Length
+    point_list.sort() 
+
+    #Valid Check:
+    if n < 3:
+        return point_list
+
+
+    upper_hull = point_list[0:1]
+    for i in range(2, n):
+        upper_hull.append(point_list[i])
+        while len(upper_hull) >= 3 and  not ccw(upper_hull[-3:]):
+            del upper_hull[-2]
+
+
+    lower_hull = [point_list[-1], point_list[-2]]
+    for i in range(n - 3, -1, -1):  
+        lower_hull.append(point_list[i])
+        while len(lower_hull) >= 3 and  not ccw(lower_hull[-3:]):
+            del lower_hull[-2]
+            
+    upper_hull.extend(lower_hull[1:-1])
+    hull = list(map(lambda p: Point(p[0], p[1]), upper_hull))
+    return Polygon(hull)
+# 绘图
+import matplotlib.pyplot as plt
+
+def plotPoints(points, style='bo'):
+    if not type(points) == list:
+        points = [points]
+
+    points = toNumpy(points)
+    plt.plot(points[:, 0], points[:, 1], style)
+
+
+def showPoints(points, style='bo'):
+    plotPoints(points, style=style)
+    #plt.savefig('./test2.jpg')
+    plt.show()
+
+
+def plot(polygons, style='g-'):
+    if not type(polygons) == list:
+        polygons = [polygons]
+    for polygon in polygons:
+        points = polygon.points + [polygon.points[0]]
+        plotPoints(points, style=style)
+
+
+def show(polygons, style='g-'):
+    plot(polygons, style=style)
+    plt.show()    
